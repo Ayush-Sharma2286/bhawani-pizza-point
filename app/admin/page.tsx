@@ -1,173 +1,211 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { useApp, StoredOrder } from "@/context/AppContext";
-import { FoodItem, restaurantInfo } from "@/lib/menuData";
-import { 
-  ShoppingBag, 
-  Clock, 
-  AlertCircle, 
-  DollarSign, 
-  ArrowLeft,
-  Phone,
-  Printer,
-  Volume2,
-  VolumeX,
-  Trash2,
-  Store,
-  Plus,
-  Edit2,
-  Check,
-  X,
-  TrendingUp,
-  CreditCard,
-  Banknote,
-  Bike,
-  FileSpreadsheet
-} from "lucide-react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { 
+  Lock, 
+  Unlock, 
+  Printer, 
+  CheckCircle2, 
+  Clock, 
+  Truck, 
+  Store, 
+  Power, 
+  TrendingUp, 
+  Plus, 
+  Trash2, 
+  KeyRound, 
+  LogOut,
+  ShoppingBag,
+  IndianRupee,
+  Utensils
+} from "lucide-react";
+import { initialFoodItems, Order, FoodItem } from "@/context/AppContext";
 
 export default function AdminPage() {
-  const { 
-    orders, 
-    updateOrderStatus, 
-    outOfStockItems, 
-    toggleItemStock,
-    isStoreOpen,
-    toggleStoreStatus,
-    items,
-    addNewItem,
-    updateItemPrice
-  } = useApp();
-
+  // Authentication & PIN States
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  useEffect(() => {
-    const adminToken = sessionStorage.getItem("bp_admin_auth");
-    if (adminToken === "authenticated_secret_session") {
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  const handleAdminLogin = () => {
-    if (pin.trim() === "1234") {
-      sessionStorage.setItem("bp_admin_auth", "authenticated_secret_session");
-      setIsAuthenticated(true);
-    } else {
-      alert("गलत पिन! कृपया सही पिन डालें।");
-      setPin("");
-    }
-  };
-
-  const handleAdminLogout = () => {
-    sessionStorage.removeItem("bp_admin_auth");
-    setIsAuthenticated(false);
-    setPin("");
-  };
   const [pin, setPin] = useState("");
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [currentAdminPin, setCurrentAdminPin] = useState("1234");
+  const [showChangePinModal, setShowChangePinModal] = useState(false);
+  const [oldPinInput, setOldPinInput] = useState("");
+  const [newPinInput, setNewPinInput] = useState("");
 
-  // New Item Form State
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newItemNameHi, setNewItemNameHi] = useState("");
+  // Dashboard States
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [menuItems, setMenuItems] = useState<FoodItem[]>(initialFoodItems);
+  const [isStoreOpen, setIsStoreOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<"orders" | "menu" | "analytics">("orders");
+
+  // New Item Form States
   const [newItemNameEn, setNewItemNameEn] = useState("");
-  const [newItemCategory, setNewItemCategory] = useState("normal-pizza");
+  const [newItemNameHi, setNewItemNameHi] = useState("");
+  const [newItemCategory, setNewItemCategory] = useState("pizza");
   const [newItemRegularPrice, setNewItemRegularPrice] = useState("");
   const [newItemMediumPrice, setNewItemMediumPrice] = useState("");
   const [newItemLargePrice, setNewItemLargePrice] = useState("");
   const [newItemImage, setNewItemImage] = useState("https://images.unsplash.com/photo-1513104890138-7c749659a591?w=500&auto=format&fit=crop&q=60");
 
-  // Edit Price State
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [editPriceRegular, setEditPriceRegular] = useState("");
-  const [editPriceMedium, setEditPriceMedium] = useState("");
-  const [editPriceLarge, setEditPriceLarge] = useState("");
+  // Load Saved PIN, Auth Token & Orders on Mount
+  useEffect(() => {
+    const savedPin = localStorage.getItem("bp_admin_custom_pin");
+    if (savedPin) {
+      setCurrentAdminPin(savedPin);
+    }
 
-  const prevOrderCountRef = useRef(orders.length);
+    const adminToken = sessionStorage.getItem("bp_admin_auth");
+    if (adminToken === "authenticated_secret_session") {
+      setIsAuthenticated(true);
+    }
 
-  const playAlertSound = () => {
-    if (!soundEnabled) return;
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+    const savedStoreState = localStorage.getItem("bp_store_open");
+    if (savedStoreState !== null) {
+      setIsStoreOpen(savedStoreState === "true");
+    }
 
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.15);
+    // Load orders from localStorage
+    const savedOrders = localStorage.getItem("bp_orders");
+    if (savedOrders) {
+      try {
+        setOrders(JSON.parse(savedOrders));
+      } catch (e) {
+        console.error("Orders parse error:", e);
+      }
+    }
 
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+    // Polling for live orders every 5 seconds
+    const interval = setInterval(() => {
+      const updated = localStorage.getItem("bp_orders");
+      if (updated) {
+        try {
+          setOrders(JSON.parse(updated));
+        } catch (e) {
+          console.error("Orders interval parse error:", e);
+        }
+      }
+    }, 5000);
 
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
+    return () => clearInterval(interval);
+  }, []);
 
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.4);
-    } catch (e) {
-      console.log("Audio waiting for user click");
+  // Login Handler
+  const handleAdminLogin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const activePin = localStorage.getItem("bp_admin_custom_pin") || currentAdminPin;
+    if (pin.trim() === activePin) {
+      sessionStorage.setItem("bp_admin_auth", "authenticated_secret_session");
+      setIsAuthenticated(true);
+      setPin("");
+    } else {
+      alert("Galat PIN! Kripya sahi 4-digit PIN dalein.");
+      setPin("");
     }
   };
 
-  useEffect(() => {
-    if (isAuthenticated && orders.length > prevOrderCountRef.current) {
-      playAlertSound();
+  // Logout Handler
+  const handleAdminLogout = () => {
+    sessionStorage.removeItem("bp_admin_auth");
+    setIsAuthenticated(false);
+    setPin("");
+  };
+
+  // Change PIN Handler
+  const handleUpdatePin = () => {
+    const activePin = localStorage.getItem("bp_admin_custom_pin") || currentAdminPin;
+    if (oldPinInput !== activePin) {
+      alert("Purana PIN galat hai!");
+      return;
     }
-    prevOrderCountRef.current = orders.length;
-  }, [orders.length, isAuthenticated]);
+    if (!/^\d{4}$/.test(newPinInput)) {
+      alert("Naya PIN theek 4 ank (digits) ka hona chahiye!");
+      return;
+    }
+    localStorage.setItem("bp_admin_custom_pin", newPinInput);
+    setCurrentAdminPin(newPinInput);
+    alert("PIN safaltapoorvak badal diya gaya hai!");
+    setOldPinInput("");
+    setNewPinInput("");
+    setShowChangePinModal(false);
+  };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
-        <div className="w-full max-w-xs rounded-2xl bg-white p-6 shadow-xl text-center">
-          <div className="mb-3 text-4xl">🔐</div>
-          <h2 className="text-lg font-bold text-gray-800">Admin Login</h2>
-          <p className="text-xs text-gray-500 mb-4">रेस्टोरेंट एडमिन पिन दर्ज करें</p>
-          <input
-            type="password"
-            maxLength={4}
-            placeholder="PIN (उदा. 1234)"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            className="w-full rounded-xl border border-gray-300 p-3 text-center text-lg tracking-widest outline-none focus:border-red-600"
-          />
-          <button
-            onClick={handleAdminLogin}
-  className="mt-4 w-full rounded-xl bg-red-600 py-3 font-bold text-white shadow active:scale-95"
->
-  लॉगिन करें
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Store Toggle
+  const toggleStoreStatus = () => {
+    const nextState = !isStoreOpen;
+    setIsStoreOpen(nextState);
+    localStorage.setItem("bp_store_open", String(nextState));
+  };
 
-  // 📊 Analytics Calculations
-  const todaySales = orders.reduce((sum, o) => sum + o.total, 0);
-  const codSales = orders.filter(o => o.paymentMethod.toLowerCase().includes("cash") || o.paymentMethod.toLowerCase().includes("cod")).reduce((sum, o) => sum + o.total, 0);
-  const upiSales = orders.filter(o => o.paymentMethod.toLowerCase().includes("upi") || o.paymentMethod.toLowerCase().includes("online")).reduce((sum, o) => sum + o.total, 0);
-  const deliveryOrdersCount = orders.filter(o => !o.address.includes("पिकअप")).length;
-  const pickupOrdersCount = orders.length - deliveryOrdersCount;
+  // Update Order Status
+  const handleUpdateOrderStatus = (orderId: string, status: Order["status"]) => {
+    const updated = orders.map((ord) => (ord.id === orderId ? { ...ord, status } : ord));
+    setOrders(updated);
+    localStorage.setItem("bp_orders", JSON.stringify(updated));
+  };
 
-  // Top Selling Item Calculation
-  const itemFrequency: { [name: string]: number } = {};
-  orders.forEach(order => {
-    order.items.forEach(item => {
-      itemFrequency[item.name] = (itemFrequency[item.name] || 0) + item.quantity;
-    });
-  });
-  const topSellingItem = Object.entries(itemFrequency).sort((a, b) => b[1] - a[1])[0];
+  // Print KOT
+  const handlePrintKOT = (order: Order) => {
+    const printWindow = window.open("", "", "width=380,height=600");
+    if (!printWindow) return;
 
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>KOT - #${order.id.slice(-5)}</title>
+          <style>
+            body { font-family: monospace; padding: 10px; font-size: 13px; }
+            .center { text-align: center; }
+            .line { border-bottom: 1px dashed #000; margin: 8px 0; }
+            .flex { display: flex; justify-content: space-between; }
+            .bold { font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="center bold" style="font-size: 16px;">BHAWANI PIZZA POINT</div>
+          <div class="center">KITCHEN ORDER TICKET (KOT)</div>
+          <div class="line"></div>
+          <div class="flex"><span>Order: #${order.id.slice(-6)}</span><span>Type: ${order.orderType.toUpperCase()}</span></div>
+          <div class="flex"><span>Date: ${new Date(order.timestamp).toLocaleTimeString()}</span><span>Pay: ${order.paymentMethod}</span></div>
+          <div class="line"></div>
+          <div><strong>Customer:</strong> ${order.customerName} (${order.customerPhone})</div>
+          ${order.orderType === "delivery" ? `<div><strong>Address:</strong> ${order.address || "Local Delivery"}</div>` : ""}
+          <div class="line"></div>
+          <div class="bold">ITEMS:</div>
+          ${order.items
+            .map(
+              (i) => `
+            <div class="flex" style="margin: 4px 0;">
+              <span>${i.quantity}x ${i.name.en} (${i.size})</span>
+              <span>₹${i.price * i.quantity}</span>
+            </div>
+          `
+            )
+            .join("")}
+          <div class="line"></div>
+          <div class="flex bold" style="font-size: 15px;">
+            <span>TOTAL:</span>
+            <span>₹${order.totalAmount}</span>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  };
+
+  // Create New Menu Item (isVeg included)
   const handleCreateNewItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newItemNameHi || !newItemNameEn || !newItemRegularPrice) {
-      alert("कृपया नाम और कीमत दर्ज करें!");
+    if (!newItemNameEn || !newItemRegularPrice) {
+      alert("Naam aur Regular price bharna anivarya hai!");
       return;
     }
 
     const newItem: FoodItem = {
       id: `item-${Date.now()}`,
-      name: { hi: newItemNameHi, en: newItemNameEn },
-      description: { hi: "स्वादिष्ट और गरमा-गरम", en: "Freshly prepared & delicious" },
+      name: { hi: newItemNameHi || newItemNameEn, en: newItemNameEn },
+      description: { hi: "Swadisht aur taaza", en: "Freshly prepared & delicious" },
       category: newItemCategory as any,
       image: newItemImage,
       isVeg: true,
@@ -178,600 +216,431 @@ export default function AdminPage() {
       },
     };
 
-    addNewItem(newItem);
-    setShowAddModal(false);
-    setNewItemNameHi("");
+    const updatedMenu = [newItem, ...menuItems];
+    setMenuItems(updatedMenu);
+    alert("Naya item safaltapoorvak menu me jud gaya!");
     setNewItemNameEn("");
+    setNewItemNameHi("");
     setNewItemRegularPrice("");
     setNewItemMediumPrice("");
     setNewItemLargePrice("");
-    alert("नया आइटम मेन्यू में जुड़ गया!");
   };
 
-  const startEditPrice = (item: FoodItem) => {
-    setEditingItemId(item.id);
-    setEditPriceRegular(String(item.prices.regular));
-    setEditPriceMedium(item.prices.medium ? String(item.prices.medium) : "");
-    setEditPriceLarge(item.prices.large ? String(item.prices.large) : "");
-  };
+  // Analytics Calculation
+  const totalSales = orders.reduce((sum, ord) => sum + (ord.status !== "cancelled" ? ord.totalAmount : 0), 0);
+  const upiSales = orders
+    .filter((ord) => ord.paymentMethod === "UPI" && ord.status !== "cancelled")
+    .reduce((sum, ord) => sum + ord.totalAmount, 0);
+  const codSales = totalSales - upiSales;
 
-  const saveEditPrice = (id: string) => {
-    const reg = parseInt(editPriceRegular);
-    if (isNaN(reg)) return;
-    const med = editPriceMedium ? parseInt(editPriceMedium) : undefined;
-    const lrg = editPriceLarge ? parseInt(editPriceLarge) : undefined;
-
-    updateItemPrice(id, reg, med, lrg);
-    setEditingItemId(null);
-  };
-
-  const printOrderKOT = (order: StoredOrder) => {
-    const printWindow = window.open("", "_blank", "width=350,height=550");
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>KOT - #${order.id}</title>
-          <style>
-            body { font-family: monospace; padding: 12px; font-size: 13px; color: #000; }
-            .center { text-align: center; }
-            hr { border: none; border-top: 1px dashed #000; margin: 8px 0; }
-            .flex { display: flex; justify-content: space-between; }
-            .bold { font-weight: bold; }
-          </style>
-        </head>
-        <body>
-          <div class="center">
-            <h2 style="margin: 0;">${restaurantInfo.name}</h2>
-            <p style="margin: 3px 0;">📞 ${restaurantInfo.phone}</p>
-            <p style="margin: 3px 0;" class="bold">*** KITCHEN ORDER TICKET (KOT) ***</p>
-            <p style="margin: 3px 0;">Order: #${order.id} | ${order.time}</p>
+  // ----------------------------------------------------
+  // LOGIN SCREEN (If not authenticated)
+  // ----------------------------------------------------
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-red-600">
+            <Lock className="h-7 w-7" />
           </div>
-          <hr/>
-          <p><strong>Customer:</strong> ${order.customer}</p>
-          <p><strong>Phone:</strong> ${order.phone}</p>
-          <p><strong>Address:</strong> ${order.address}</p>
-          <p><strong>Pay Mode:</strong> ${order.paymentMethod}</p>
-          ${order.cookingNote ? `<p style="color:red; margin:4px 0;"><strong>*** NOTE:</strong> ${order.cookingNote} ***</p>` : ""}
-          <hr/>
-          <table style="width:100%; text-align:left; font-size: 12px;">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Qty</th>
-                <th style="text-align:right;">Amt</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${order.items.map(i => `
-                <tr>
-                  <td>${i.name} (${i.size})</td>
-                  <td>x${i.quantity}</td>
-                  <td style="text-align:right;">₹${i.price * i.quantity}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-          <hr/>
-          <div class="flex bold" style="font-size: 15px;">
-            <span>TOTAL AMOUNT:</span>
-            <span>₹${order.total}</span>
-          </div>
-          <hr/>
-          <div class="center" style="font-size: 11px; margin-top: 8px;">
-            Thank you for ordering! Visit again.
-          </div>
-          <script>window.print();</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-  };
+          <h2 className="text-xl font-bold text-gray-900">Admin Control Panel</h2>
+          <p className="mt-1 text-xs text-gray-500">Bhawani Pizza Point Admin Access</p>
 
-  const printDailyReport = () => {
-    const printWindow = window.open("", "_blank", "width=380,height=600");
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Daily Sales Report</title>
-          <style>
-            body { font-family: monospace; padding: 15px; font-size: 13px; }
-            .center { text-align: center; }
-            hr { border: none; border-top: 1px dashed #000; margin: 10px 0; }
-            .flex { display: flex; justify-content: space-between; margin: 4px 0; }
-          </style>
-        </head>
-        <body>
-          <div class="center">
-            <h2>${restaurantInfo.name}</h2>
-            <h3>--- DAILY SALES REPORT ---</h3>
-            <p>Date: ${new Date().toLocaleDateString()}</p>
+          <form onSubmit={handleAdminLogin} className="mt-6">
+            <label className="block text-left text-xs font-semibold text-gray-700">Admin PIN Dalein</label>
+            <input
+              type="password"
+              maxLength={4}
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="****"
+              className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 text-center text-2xl tracking-[0.5em] outline-none focus:border-red-500 focus:ring-2 focus:ring-red-200"
+              autoFocus
+            />
+            <button
+              type="submit"
+              className="mt-5 w-full rounded-xl bg-red-600 py-3 font-bold text-white shadow-md transition-all active:scale-95 hover:bg-red-700"
+            >
+              Login Karein
+            </button>
+          </form>
+
+          <div className="mt-4 text-xs text-gray-400">
+            Default PIN: <span className="font-mono font-bold text-gray-600">1234</span>
           </div>
-          <hr/>
-          <div class="flex"><span>Total Orders:</span><strong>${orders.length}</strong></div>
-          <div class="flex"><span>Delivery Orders:</span><strong>${deliveryOrdersCount}</strong></div>
-          <div class="flex"><span>Takeaway Orders:</span><strong>${pickupOrdersCount}</strong></div>
-          <hr/>
-          <div class="flex"><span>Cash (COD) Collected:</span><strong>₹${codSales}</strong></div>
-          <div class="flex"><span>Online UPI Received:</span><strong>₹${upiSales}</strong></div>
-          <hr/>
-          <div class="flex" style="font-size: 16px;"><span>GROSS SALES:</span><strong>₹${todaySales}</strong></div>
-          <hr/>
-          <p><strong>Top Selling Item:</strong> ${topSellingItem ? `${topSellingItem[0]} (${topSellingItem[1]} sold)` : "N/A"}</p>
-          <script>window.print();</script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-  };
 
-  const clearAllOrders = () => {
-    if (confirm("क्या आप सचमुच सभी पुराने ऑर्डर्स साफ़ करना चाहते हैं?")) {
-      localStorage.removeItem('bp_orders');
-      window.location.reload();
-    }
-  };
+          <div className="mt-6 border-t pt-4">
+            <Link href="/" className="text-xs font-semibold text-red-600 hover:underline">
+              ← Wapas Customer Menu par jayein
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  // ----------------------------------------------------
+  // MAIN ADMIN DASHBOARD
+  // ----------------------------------------------------
   return (
-    <div className="min-h-screen bg-gray-100 pb-16 text-gray-800">
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b bg-white px-4 py-3 shadow-xs">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="rounded-lg bg-gray-100 p-2 text-gray-600 hover:bg-gray-200">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <div>
-            <h1 className="text-base font-bold text-gray-900">Admin Dashboard</h1>
-            <p className="text-[11px] text-gray-500">{restaurantInfo.name}</p>
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b bg-white px-4 py-3 shadow-sm">
+        <div className="mx-auto flex max-w-5xl items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white font-black shadow">
+              BP
+            </div>
+            <div>
+              <h1 className="text-sm font-bold text-gray-900 leading-tight">Admin Dashboard</h1>
+              <p className="text-[11px] text-gray-500">Bhawani Pizza Point</p>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowChangePinModal(true)}
+              className="flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            >
+              <KeyRound className="h-3.5 w-3.5 text-gray-500" />
+              <span>PIN Badlein</span>
+            </button>
+            <button
+              onClick={handleAdminLogout}
+              className="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span>Logout</span>
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Navigation Tabs */}
+        <div className="mx-auto mt-3 flex max-w-5xl gap-2 border-t pt-2">
           <button
-            onClick={() => {
-              setSoundEnabled(!soundEnabled);
-              if (!soundEnabled) playAlertSound();
-            }}
-            className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
-              soundEnabled ? "border-green-300 bg-green-50 text-green-700" : "border-gray-200 text-gray-500"
+            onClick={() => setActiveTab("orders")}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+              activeTab === "orders" ? "bg-red-600 text-white shadow" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
-            {soundEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
-            <span className="hidden sm:inline">{soundEnabled ? "Sound ON" : "Muted"}</span>
+            Live Orders ({orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled").length})
           </button>
-          
           <button
-            onClick={handleAdminLogout}
-  className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+            onClick={() => setActiveTab("menu")}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+              activeTab === "menu" ? "bg-red-600 text-white shadow" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
           >
-            Logout
+            Menu Items
+          </button>
+          <button
+            onClick={() => setActiveTab("analytics")}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+              activeTab === "analytics" ? "bg-red-600 text-white shadow" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            Sales Report
           </button>
         </div>
       </header>
 
-      {/* Store Status Toggle */}
-      <div className="p-4 pb-0">
-        <div className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-xs border border-gray-200">
+      {/* Main Content Area */}
+      <main className="mx-auto max-w-5xl p-4">
+        {/* Store Online/Offline Bar */}
+        <div className="mb-4 flex items-center justify-between rounded-xl bg-white p-4 shadow-sm border border-gray-200">
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl ${isStoreOpen ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-              <Store className="h-5 w-5" />
-            </div>
+            <Store className={`h-6 w-6 ${isStoreOpen ? "text-green-600" : "text-gray-400"}`} />
             <div>
-              <h3 className="text-sm font-bold text-gray-900">Restaurant Status</h3>
+              <p className="text-sm font-bold text-gray-800">
+                Dukaan ka Status: {isStoreOpen ? "Khuli Hai (Online)" : "Band Hai (Offline)"}
+              </p>
               <p className="text-xs text-gray-500">
-                {isStoreOpen ? "🟢 दुकान चालू है (Orders On)" : "🔴 दुकान बंद है (Orders Paused)"}
+                {isStoreOpen ? "Customer abhi orders place kar sakte hain." : "Naye orders aana band hain."}
               </p>
             </div>
           </div>
           <button
             onClick={toggleStoreStatus}
-            className={`rounded-xl px-4 py-2 text-xs font-bold transition shadow-xs ${
-              isStoreOpen 
-                ? "bg-red-100 text-red-700 hover:bg-red-200 border border-red-200" 
-                : "bg-green-100 text-green-700 hover:bg-green-200 border border-green-200"
+            className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold text-white shadow transition-all ${
+              isStoreOpen ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"
             }`}
           >
-            {isStoreOpen ? "दुकान बंद करें" : "दुकान खोलें"}
+            <Power className="h-4 w-4" />
+            <span>{isStoreOpen ? "Dukaan Band Karein" : "Dukaan Chalu Karein"}</span>
           </button>
         </div>
-      </div>
 
-      {/* 🟢 BUSINESS ANALYTICS & DAILY SALES REPORT */}
-      <div className="p-4 pb-0">
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between border-b pb-2 mb-3">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-              <TrendingUp className="h-4 w-4 text-red-600" />
-              <span>Business Sales Breakdown</span>
-            </h3>
-            <button
-              onClick={printDailyReport}
-              className="flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-[11px] font-bold text-gray-700 hover:bg-gray-200"
-            >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-green-600" />
-              <span>Print Report</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            <div className="rounded-xl bg-green-50 border border-green-200 p-3">
-              <div className="flex items-center justify-between text-[11px] text-green-800 font-semibold">
-                <span>Total Cash (COD)</span>
-                <Banknote className="h-3.5 w-3.5 text-green-600" />
+        {/* TAB 1: ORDERS */}
+        {activeTab === "orders" && (
+          <div className="space-y-4">
+            {orders.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-12 text-center text-gray-500">
+                <ShoppingBag className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+                <p className="font-semibold">Abhi koi orders nahi hain</p>
+                <p className="text-xs text-gray-400 mt-1">Customer dwara naya order karte hi yahan show ho jayega.</p>
               </div>
-              <div className="mt-1 text-base font-extrabold text-green-900">₹{codSales}</div>
-            </div>
-
-            <div className="rounded-xl bg-purple-50 border border-purple-200 p-3">
-              <div className="flex items-center justify-between text-[11px] text-purple-800 font-semibold">
-                <span>Total Online (UPI)</span>
-                <CreditCard className="h-3.5 w-3.5 text-purple-600" />
-              </div>
-              <div className="mt-1 text-base font-extrabold text-purple-900">₹{upiSales}</div>
-            </div>
-
-            <div className="rounded-xl bg-blue-50 border border-blue-200 p-3">
-              <div className="flex items-center justify-between text-[11px] text-blue-800 font-semibold">
-                <span>Delivery Orders</span>
-                <Bike className="h-3.5 w-3.5 text-blue-600" />
-              </div>
-              <div className="mt-1 text-base font-extrabold text-blue-900">{deliveryOrdersCount}</div>
-            </div>
-
-            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
-              <div className="flex items-center justify-between text-[11px] text-amber-800 font-semibold">
-                <span>Takeaway Orders</span>
-                <Store className="h-3.5 w-3.5 text-amber-600" />
-              </div>
-              <div className="mt-1 text-base font-extrabold text-amber-900">{pickupOrdersCount}</div>
-            </div>
-          </div>
-
-          {topSellingItem && (
-            <div className="mt-3 rounded-xl bg-gray-50 border border-gray-200 p-2 text-xs flex items-center justify-between">
-              <span className="text-gray-600">⭐ सबसे ज़्यादा बिकने वाला आइटम:</span>
-              <span className="font-bold text-gray-900">{topSellingItem[0]} ({topSellingItem[1]} बिका)</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Total Overview Metrics */}
-      <div className="p-4 grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-white p-4 shadow-xs border border-gray-200">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-medium">
-            <span>Gross Sales</span>
-            <DollarSign className="h-4 w-4 text-green-600" />
-          </div>
-          <div className="mt-2 text-2xl font-extrabold text-gray-900">₹{todaySales}</div>
-        </div>
-
-        <div className="rounded-2xl bg-white p-4 shadow-xs border border-gray-200">
-          <div className="flex items-center justify-between text-gray-500 text-xs font-medium">
-            <span>Total Orders</span>
-            <ShoppingBag className="h-4 w-4 text-blue-600" />
-          </div>
-          <div className="mt-2 text-2xl font-extrabold text-gray-900">{orders.length}</div>
-        </div>
-      </div>
-
-      {/* Live Orders */}
-      <div className="px-4 mt-1">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
-            <Clock className="h-4 w-4 text-red-600" />
-            <span>Live Orders ({orders.filter(o => o.status !== "Delivered").length})</span>
-          </h2>
-          {orders.length > 0 && (
-            <button
-              onClick={clearAllOrders}
-              className="text-[11px] text-gray-400 hover:text-red-600 flex items-center gap-1"
-            >
-              <Trash2 className="h-3 w-3" />
-              <span>Clear History</span>
-            </button>
-          )}
-        </div>
-
-        {orders.length === 0 ? (
-          <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center text-gray-400 text-xs">
-            अभी कोई सक्रिय ऑर्डर नहीं है।
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {orders.map(order => (
-              <div key={order.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-xs">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <div>
-                    <span className="text-xs font-bold text-gray-900 font-mono">Order #{order.id}</span>
-                    <span className="ml-2 text-[10px] text-gray-400">{order.time}</span>
+            ) : (
+              orders.map((order) => (
+                <div key={order.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+                    <div>
+                      <span className="text-xs font-bold text-red-600">#{order.id.slice(-6)}</span>
+                      <span className="ml-2 text-xs font-semibold text-gray-800">{order.customerName}</span>
+                      <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                        {order.customerPhone}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                          order.status === "delivered"
+                            ? "bg-green-100 text-green-700"
+                            : order.status === "cancelled"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {order.status.toUpperCase()}
+                      </span>
+                      <button
+                        onClick={() => handlePrintKOT(order)}
+                        className="flex items-center gap-1 rounded-lg border border-gray-300 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                        <span>KOT</span>
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => printOrderKOT(order)}
-                      className="flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-200"
-                    >
-                      <Printer className="h-3.5 w-3.5" />
-                      <span>Print KOT</span>
-                    </button>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      order.status === "Delivered" ? "bg-green-100 text-green-700" :
-                      order.status === "Out for Delivery" ? "bg-purple-100 text-purple-700" :
-                      order.status === "Preparing" ? "bg-yellow-100 text-yellow-800" :
-                      "bg-orange-100 text-orange-700"
-                    }`}>
-                      {order.status}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="mt-2.5 text-xs space-y-1">
-                  <div className="flex items-center justify-between">
-                    <p className="font-bold text-gray-800">{order.customer}</p>
-                    <a href={`tel:${order.phone}`} className="flex items-center gap-1 text-blue-600 font-medium">
-                      <Phone className="h-3 w-3" />
-                      <span>{order.phone}</span>
-                    </a>
-                  </div>
-                  <p className="text-gray-600 text-[11px]">{order.address}</p>
-                  <p className="text-[10px] text-gray-500 font-mono">Payment: {order.paymentMethod}</p>
-
-                  {order.cookingNote && (
-                    <p className="mt-1 rounded-md bg-amber-50 p-1.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
-                      📝 Note: {order.cookingNote}
+                  {/* Order Details */}
+                  <div className="py-3 text-xs text-gray-600">
+                    <p className="font-medium text-gray-800 mb-1">
+                      Type: <span className="uppercase font-bold">{order.orderType}</span> | Pay:{" "}
+                      <span className="font-bold text-gray-900">{order.paymentMethod}</span>
                     </p>
-                  )}
+                    {order.address && (
+                      <p className="text-gray-500 mb-2">Address: {order.address}</p>
+                    )}
 
-                  <div className="mt-2 border-t pt-2 space-y-1">
-                    {order.items.map((it, idx) => (
-                      <p key={idx} className="font-medium text-red-600 text-[11px]">
-                        • {it.name} ({it.size}) x {it.quantity} = ₹{it.price * it.quantity}
-                      </p>
-                    ))}
+                    <div className="rounded-lg bg-gray-50 p-2.5 space-y-1">
+                      {order.items.map((it, idx) => (
+                        <div key={idx} className="flex justify-between">
+                          <span>
+                            {it.quantity}x {it.name.en} ({it.size})
+                          </span>
+                          <span className="font-semibold text-gray-800">₹{it.price * it.quantity}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex justify-between font-bold text-sm text-gray-900">
+                      <span>Total Amount:</span>
+                      <span className="text-red-600">₹{order.totalAmount}</span>
+                    </div>
+                  </div>
+
+                  {/* Status Actions */}
+                  <div className="flex flex-wrap gap-2 pt-2 border-t">
+                    <button
+                      onClick={() => handleUpdateOrderStatus(order.id, "preparing")}
+                      className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-100"
+                    >
+                      Kitchen me Ban raha hai
+                    </button>
+                    <button
+                      onClick={() => handleUpdateOrderStatus(order.id, "out_for_delivery")}
+                      className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                    >
+                      Delivery par nikal gaya
+                    </button>
+                    <button
+                      onClick={() => handleUpdateOrderStatus(order.id, "delivered")}
+                      className="rounded-lg bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-100"
+                    >
+                      Delivered ho gaya
+                    </button>
                   </div>
                 </div>
-
-                <div className="mt-3 flex items-center justify-between border-t pt-2.5">
-                  <span className="text-base font-extrabold text-gray-900">Final Total: ₹{order.total}</span>
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={() => updateOrderStatus(order.id, "Preparing")}
-                      className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold ${
-                        order.status === "Preparing" ? "bg-yellow-500 text-white" : "bg-yellow-100 text-yellow-800"
-                      }`}
-                    >
-                      Preparing
-                    </button>
-                    <button
-                      onClick={() => updateOrderStatus(order.id, "Out for Delivery")}
-                      className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold ${
-                        order.status === "Out for Delivery" ? "bg-purple-500 text-white" : "bg-purple-100 text-purple-800"
-                      }`}
-                    >
-                      Out for Delivery
-                    </button>
-                    <button
-                      onClick={() => updateOrderStatus(order.id, "Delivered")}
-                      className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold ${
-                        order.status === "Delivered" ? "bg-green-600 text-white" : "bg-green-100 text-green-800"
-                      }`}
-                    >
-                      Delivered
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
-      </div>
 
-      {/* Menu Stock & Price Manager */}
-      <div className="px-4 mt-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
-            <AlertCircle className="h-4 w-4 text-red-600" />
-            <span>Menu & Price Manager ({items.length} Items)</span>
-          </h2>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1 rounded-xl bg-red-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-red-700"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>+ Add New Item</span>
-          </button>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-2 divide-y">
-          {items.map(item => {
-            const isOOS = outOfStockItems.includes(item.id);
-            const isEditing = editingItemId === item.id;
-
-            return (
-              <div key={item.id} className="py-2.5 px-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-gray-800">{item.name.hi} ({item.name.en})</p>
-                    <p className="text-[10px] text-gray-500">
-                      Regular: ₹{item.prices.regular}
-                      {item.prices.medium && ` | Med: ₹${item.prices.medium}`}
-                      {item.prices.large && ` | Lrg: ₹${item.prices.large}`}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => isEditing ? saveEditPrice(item.id) : startEditPrice(item)}
-                      className="rounded-lg bg-gray-100 p-1.5 text-gray-600 hover:bg-gray-200"
-                      title="Edit Price"
-                    >
-                      {isEditing ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Edit2 className="h-3.5 w-3.5" />}
-                    </button>
-                    
-                    <button
-                      onClick={() => toggleItemStock(item.id)}
-                      className={`flex items-center gap-1 rounded-full px-2.5 py-1 font-bold text-[10px] transition ${
-                        !isOOS ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {!isOOS ? "🟢 Available" : "🔴 Out of Stock"}
-                    </button>
-                  </div>
-                </div>
-
-                {isEditing && (
-                  <div className="mt-2.5 flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-200">
-                    <span className="text-[10px] font-bold text-gray-500">Edit Price:</span>
-                    <input
-                      type="number"
-                      placeholder="Reg"
-                      value={editPriceRegular}
-                      onChange={(e) => setEditPriceRegular(e.target.value)}
-                      className="w-16 rounded border bg-white p-1 text-xs outline-none"
-                    />
-                    {item.prices.medium && (
-                      <input
-                        type="number"
-                        placeholder="Med"
-                        value={editPriceMedium}
-                        onChange={(e) => setEditPriceMedium(e.target.value)}
-                        className="w-16 rounded border bg-white p-1 text-xs outline-none"
-                      />
-                    )}
-                    {item.prices.large && (
-                      <input
-                        type="number"
-                        placeholder="Lrg"
-                        value={editPriceLarge}
-                        onChange={(e) => setEditPriceLarge(e.target.value)}
-                        className="w-16 rounded border bg-white p-1 text-xs outline-none"
-                      />
-                    )}
-                    <button
-                      onClick={() => saveEditPrice(item.id)}
-                      className="rounded bg-green-600 px-2 py-1 font-bold text-white text-[10px]"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setEditingItemId(null)}
-                      className="text-gray-400 hover:text-red-500"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Add New Item Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <form onSubmit={handleCreateNewItem} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl space-y-3">
-            <div className="flex items-center justify-between border-b pb-2">
-              <h3 className="text-sm font-bold text-gray-900">+ Add New Food Item</h3>
-              <button type="button" onClick={() => setShowAddModal(false)} className="rounded-full bg-gray-100 p-1">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <div>
-                <label className="font-bold text-gray-700">नाम (हिंदी) *</label>
-                <input
-                  type="text"
-                  placeholder="उदा. वेज पनीर पिज़्ज़ा"
-                  value={newItemNameHi}
-                  onChange={(e) => setNewItemNameHi(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-300 p-2 outline-none focus:border-red-600"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700">Name (English) *</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Veg Paneer Pizza"
-                  value={newItemNameEn}
-                  onChange={(e) => setNewItemNameEn(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-300 p-2 outline-none focus:border-red-600"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-gray-700">Category</label>
-                <select
-                  value={newItemCategory}
-                  onChange={(e) => setNewItemCategory(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-300 p-2 outline-none focus:border-red-600 bg-white"
-                >
-                  <option value="normal-pizza">Normal Pizza</option>
-                  <option value="special-pizza">Special Pizza</option>
-                  <option value="burger">Burger</option>
-                  <option value="sandwich">Sandwich</option>
-                  <option value="maggi">Maggi</option>
-                  <option value="pasta">Pasta</option>
-                  <option value="drinks">Drinks & Shakes</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
+        {/* TAB 2: MENU EDITOR */}
+        {activeTab === "menu" && (
+          <div className="space-y-6">
+            {/* Add New Item Card */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center gap-2">
+                <Plus className="h-4 w-4 text-red-600" />
+                Naya Food Item Jodein
+              </h3>
+              <form onSubmit={handleCreateNewItem} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                 <div>
-                  <label className="font-bold text-gray-700">Regular ₹ *</label>
+                  <label className="font-semibold text-gray-700">English Naam</label>
+                  <input
+                    type="text"
+                    value={newItemNameEn}
+                    onChange={(e) => setNewItemNameEn(e.target.value)}
+                    placeholder="e.g. Farmhouse Special Pizza"
+                    className="mt-1 w-full rounded-lg border border-gray-300 p-2 outline-none focus:border-red-500"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-gray-700">Hindi Naam</label>
+                  <input
+                    type="text"
+                    value={newItemNameHi}
+                    onChange={(e) => setNewItemNameHi(e.target.value)}
+                    placeholder="e.g. फार्महाउस स्पेशल पिज़्ज़ा"
+                    className="mt-1 w-full rounded-lg border border-gray-300 p-2 outline-none focus:border-red-500"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-gray-700">Category</label>
+                  <select
+                    value={newItemCategory}
+                    onChange={(e) => setNewItemCategory(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 p-2 outline-none focus:border-red-500"
+                  >
+                    <option value="pizza">Pizza</option>
+                    <option value="burger">Burger</option>
+                    <option value="sides">Sides / Snacks</option>
+                    <option value="beverages">Cold Drinks</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-gray-700">Regular Price (₹)</label>
                   <input
                     type="number"
-                    placeholder="₹70"
                     value={newItemRegularPrice}
                     onChange={(e) => setNewItemRegularPrice(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-gray-300 p-2 outline-none focus:border-red-600"
-                    required
+                    placeholder="e.g. 120"
+                    className="mt-1 w-full rounded-lg border border-gray-300 p-2 outline-none focus:border-red-500"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-gray-700">Medium ₹</label>
+                  <label className="font-semibold text-gray-700">Medium Price (Optional)</label>
                   <input
                     type="number"
-                    placeholder="₹120"
                     value={newItemMediumPrice}
                     onChange={(e) => setNewItemMediumPrice(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-gray-300 p-2 outline-none focus:border-red-600"
+                    placeholder="e.g. 220"
+                    className="mt-1 w-full rounded-lg border border-gray-300 p-2 outline-none focus:border-red-500"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-gray-700">Large ₹</label>
+                  <label className="font-semibold text-gray-700">Large Price (Optional)</label>
                   <input
                     type="number"
-                    placeholder="₹180"
                     value={newItemLargePrice}
                     onChange={(e) => setNewItemLargePrice(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-gray-300 p-2 outline-none focus:border-red-600"
+                    placeholder="e.g. 350"
+                    className="mt-1 w-full rounded-lg border border-gray-300 p-2 outline-none focus:border-red-500"
                   />
                 </div>
-              </div>
+                <div className="md:col-span-2">
+                  <button
+                    type="submit"
+                    className="w-full rounded-xl bg-red-600 py-2.5 font-bold text-white shadow hover:bg-red-700"
+                  >
+                    + Menu me Add Karein
+                  </button>
+                </div>
+              </form>
+            </div>
 
+            {/* Existing Menu Items List */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <h3 className="text-sm font-bold text-gray-900 mb-3">Live Menu Items ({menuItems.length})</h3>
+              <div className="divide-y text-xs">
+                {menuItems.map((item) => (
+                  <div key={item.id} className="py-2.5 flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-gray-800">{item.name.en} ({item.name.hi})</p>
+                      <p className="text-gray-500">Category: {item.category} | Regular: ₹{item.prices.regular}</p>
+                    </div>
+                    <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700 border border-green-200">
+                      100% Veg
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: SALES & ANALYTICS */}
+        {activeTab === "analytics" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                <p className="text-xs text-gray-500 font-semibold">Total Revenue</p>
+                <p className="mt-1 text-2xl font-black text-gray-900">₹{totalSales}</p>
+                <p className="mt-1 text-[11px] text-gray-400">Kul aane wale tamam orders ka hisaab</p>
+              </div>
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                <p className="text-xs text-gray-500 font-semibold">UPI Online Sales</p>
+                <p className="mt-1 text-2xl font-black text-blue-600">₹{upiSales}</p>
+                <p className="mt-1 text-[11px] text-gray-400">Direct QR code / PhonePe / GPay</p>
+              </div>
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                <p className="text-xs text-gray-500 font-semibold">Cash On Delivery (COD)</p>
+                <p className="mt-1 text-2xl font-black text-emerald-600">₹{codSales}</p>
+                <p className="mt-1 text-[11px] text-gray-400">Delivery par aane wala cash</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* CHANGE PIN MODAL */}
+      {showChangePinModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-base font-bold text-gray-900">Naya Admin PIN Set Karein</h3>
+            <p className="mt-1 text-xs text-gray-500">Security ke liye 4 ankon ka apna naya secret PIN chunein.</p>
+
+            <div className="mt-4 space-y-3">
               <div>
-                <label className="font-bold text-gray-700">Image URL</label>
+                <label className="text-xs font-semibold text-gray-700">Purana PIN</label>
                 <input
-                  type="text"
-                  value={newItemImage}
-                  onChange={(e) => setNewItemImage(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-300 p-2 outline-none focus:border-red-600 text-[11px]"
+                  type="password"
+                  maxLength={4}
+                  value={oldPinInput}
+                  onChange={(e) => setOldPinInput(e.target.value)}
+                  placeholder="****"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-widest outline-none focus:border-red-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-700">Naya PIN (4 Digits)</label>
+                <input
+                  type="password"
+                  maxLength={4}
+                  value={newPinInput}
+                  onChange={(e) => setNewPinInput(e.target.value)}
+                  placeholder="****"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-widest outline-none focus:border-red-500"
                 />
               </div>
             </div>
 
-            <button
-              type="submit"
-              className="mt-3 w-full rounded-xl bg-red-600 py-3 text-xs font-bold text-white shadow-md active:scale-95"
-            >
-              मेन्यू में जोड़ें (Save Item)
-            </button>
-          </form>
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setShowChangePinModal(false)}
+                className="flex-1 rounded-xl bg-gray-100 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-200"
+              >
+                Radd Karein
+              </button>
+              <button
+                onClick={handleUpdatePin}
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-xs font-semibold text-white shadow hover:bg-red-700"
+              >
+                Save Karein
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
