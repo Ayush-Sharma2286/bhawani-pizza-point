@@ -232,8 +232,34 @@ export default function HomePage() {
     localStorage.setItem('bp_daily_seq', String(currentSeq));
     return `${datePrefix}${String(currentSeq).padStart(4, '0')}`;
   };
+   const validateCheckoutForm = (): boolean => {
+    if (!customerName.trim() || customerName.trim().length < 2) {
+      alert("कृपया अपना सही नाम दर्ज करें (कम से कम 2 अक्षर)।");
+      return false;
+    }
+
+    const phoneRegex = /^[6-9]\d{9}$/;
+    const cleanPhone = customerPhone.trim().replace(/\D/g, "");
+    if (!phoneRegex.test(cleanPhone)) {
+      alert("कृपया 10 अंकों का मान्य मोबाइल नंबर डालें (शुरुआत 6, 7, 8 या 9 से होनी चाहिए)।");
+      return false;
+    }
+
+    if (orderType === "delivery" && selectedVillageId === "other" && !customVillage.trim()) {
+      alert("कृपया अपने गाँव/इलाके का नाम लिखें।");
+      return false;
+    }
+
+    if (cart.length === 0) {
+      alert("कार्ट खाली है! पहले कुछ आइटम जोड़ें।");
+      return false;
+    }
+
+    return true;
+  };
 
   const handleAddressProceed = () => {
+    if (!validateCheckoutForm()) return;
     if (!isStoreOpen) {
       alert("दुकान अभी बंद है।");
       return;
@@ -920,6 +946,7 @@ export default function HomePage() {
           </div>
         </div>
       )}
+      
 
       {/* 8. Mobile Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t bg-white/95 py-2 px-3 backdrop-blur-md shadow-lg sm:hidden">

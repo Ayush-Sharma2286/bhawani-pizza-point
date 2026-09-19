@@ -41,6 +41,28 @@ export default function AdminPage() {
   } = useApp();
 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  useEffect(() => {
+    const adminToken = sessionStorage.getItem("bp_admin_auth");
+    if (adminToken === "authenticated_secret_session") {
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  const handleAdminLogin = () => {
+    if (pin.trim() === "1234") {
+      sessionStorage.setItem("bp_admin_auth", "authenticated_secret_session");
+      setIsAuthenticated(true);
+    } else {
+      alert("गलत पिन! कृपया सही पिन डालें।");
+      setPin("");
+    }
+  };
+
+  const handleAdminLogout = () => {
+    sessionStorage.removeItem("bp_admin_auth");
+    setIsAuthenticated(false);
+    setPin("");
+  };
   const [pin, setPin] = useState("");
   const [soundEnabled, setSoundEnabled] = useState(true);
 
@@ -109,20 +131,10 @@ export default function AdminPage() {
             className="w-full rounded-xl border border-gray-300 p-3 text-center text-lg tracking-widest outline-none focus:border-red-600"
           />
           <button
-            onClick={() => {
-              if (pin === "1234") {
-                setIsAuthenticated(true);
-                try {
-                  const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                  ctx.resume();
-                } catch (e) {}
-              } else {
-                alert("गलत पिन! सही पिन 1234 है।");
-              }
-            }}
-            className="mt-4 w-full rounded-xl bg-red-600 py-3 font-bold text-white shadow active:scale-95"
-          >
-            लॉगिन करें
+            onClick={handleAdminLogin}
+  className="mt-4 w-full rounded-xl bg-red-600 py-3 font-bold text-white shadow active:scale-95"
+>
+  लॉगिन करें
           </button>
         </div>
       </div>
@@ -329,8 +341,8 @@ export default function AdminPage() {
           </button>
           
           <button
-            onClick={() => setIsAuthenticated(false)}
-            className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+            onClick={handleAdminLogout}
+  className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
           >
             Logout
           </button>
